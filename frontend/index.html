@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>RRC Script</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      background: white;
+      padding: 2.5rem;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+      text-align: center;
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 1.5rem;
+      font-size: 1.6rem;
+      color: #333;
+    }
+
+    input[type="file"] {
+      display: block;
+      width: 100%;
+      margin-bottom: 1.2rem;
+      padding: 0.6rem;
+      border: 2px dashed #d1d5db;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: border-color 0.2s ease;
+    }
+
+    input[type="file"]:hover {
+      border-color: #667eea;
+    }
+
+    button {
+      width: 100%;
+      padding: 0.8rem;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      background: #667eea;
+      color: white;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+
+    button:hover {
+      background: #5a67d8;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    button:disabled {
+      background: #a5b4fc;
+      cursor: not-allowed;
+    }
+
+    #status {
+      margin-top: 1.2rem;
+      font-size: 0.95rem;
+      color: #555;
+      min-height: 1.2em;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h1>RRC Script</h1>
+
+    <input type="file" id="csvFile" accept=".csv" />
+    <button id="uploadBtn" onclick="uploadFile()">Upload & Process</button>
+
+    <p id="status"></p>
+  </div>
+
+  <script>
+    async function uploadFile() {
+      const fileInput = document.getElementById("csvFile");
+      const status = document.getElementById("status");
+      const button = document.getElementById("uploadBtn");
+
+      if (!fileInput.files.length) {
+        alert("Please select a CSV file");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+
+      status.textContent = "Processing...";
+      button.disabled = true;
+
+      try {
+        const response = await fetch("http://localhost:8000/process", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error("Server error");
+        }
+
+        const blob = await response.blob();
+
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "result.zip";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+
+        status.textContent = "Download complete!";
+      } catch (err) {
+        console.error(err);
+        status.textContent = "Error processing file";
+      } finally {
+        button.disabled = false;
+      }
+    }
+  </script>
+
+</body>
+</html>
