@@ -1,0 +1,7 @@
+:80 {
+  @process path /process
+  reverse_proxy @process localhost:8000
+
+  root * /usr/share/caddy
+  file_server
+}
