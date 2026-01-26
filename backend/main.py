@@ -271,14 +271,14 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
     # m.setObjectiveN(-variance, 3, 3)
     # m.setObjectiveN(-grsum(var), 2, 2)
 
-    m.setParam("limits/time", 60)
+    m.setParam("limits/time", 30)
     m.optimize()
 
-    for v in m.getVars():
-        try: 
-            print('%s %g' % (v, m.getVal(v)))
-        except:
-            print('%s' % (v))
+    # for v in m.getVars():
+    #     try: 
+    #         print('%s %g' % (v, m.getVal(v)))
+    #     except:
+    #         print('%s' % (v))
 
     bin_prefs = [[0 for _ in range(SHIFTSTOT)] for _ in range(len(PERSONS))]
     for v in m.getVars():
