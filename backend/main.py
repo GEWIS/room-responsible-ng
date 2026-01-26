@@ -271,6 +271,7 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
     # m.setObjectiveN(-variance, 3, 3)
     # m.setObjectiveN(-grsum(var), 2, 2)
 
+    m.setParam("limits/time", 60)
     m.optimize()
 
     for v in m.getVars():
