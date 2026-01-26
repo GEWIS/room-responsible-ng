@@ -29,7 +29,7 @@ async def process_csv(file: UploadFile = File(...)):
     for i in PERSONS:
         i.assign_from_bin(DATES, SHIFTS)
 
-    zip_bytes = print_results(PERSONS, DATES, SHIFTS, NO_ONE)
+    zip_bytes = print_results(PERSONS, DATES, SHIFTS, BIN_WEIGHTS, NO_ONE)
 
     return StreamingResponse(
         io.BytesIO(zip_bytes),
@@ -77,6 +77,9 @@ class Person:
 
     def get_total(self):
         return self.assigned
+
+    def get_total_hours(self, BIN_WEIGHTS):
+        return sum([self.bin_assign[i] * BIN_WEIGHTS[i] for i in range(len(self.bin_assign))])
 
     def set_bin_preference(self, preferred_list):
         self.bin_preference = preferred_list
@@ -314,7 +317,7 @@ def get_person_by_name(name, PERSONS):
         if i.get_name() == name:
             return i
 
-def print_results(PERSONS, DATES, SHIFTS, NO_ONE):
+def print_results(PERSONS, DATES, SHIFTS, BIN_WEIGHTS, NO_ONE):
     zip_buffer = io.BytesIO()
 
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
@@ -356,6 +359,7 @@ def print_results(PERSONS, DATES, SHIFTS, NO_ONE):
 
         stats_csv.write('Available,' + ','.join(str(p.get_available()) for p in PERSONS) + '\n')
         stats_csv.write('Total,' + ','.join(str(p.get_total()) for p in PERSONS) + '\n')
+        stats_csv.write('Totalhours,' + ','.join(str(p.get_total_hours(BIN_WEIGHTS)) for p in PERSONS) + '\n')
 
         for shift in SHIFTS:
             row = [shift.get_indicator()]
