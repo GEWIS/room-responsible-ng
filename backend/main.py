@@ -16,7 +16,6 @@ async def root():
 
 @app.post("/process")
 async def process_csv(file: UploadFile = File(...)):
-    # process CSV -> create zip
     contents = await file.read()
     text = contents.decode("utf-8")
     
@@ -257,31 +256,14 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
     for i, j in enumerate(B):
         m.addCons(wegrsum(get_column(x, j), BIN_WEIGHTS) == bv[i], f"bv_{j}")
 
-    # Constraint for mean
     m.addCons(mean == (1/len(B)) * quicksum(bv[i] for i in B))
 
-    # Variance expression
     variance = (1/len(B)) * quicksum((bv[i] - mean)*(bv[i] - mean) for i in B)
-    # Objective: minimize variance
 
-    # m.setObjective(5 * quicksum(r) + quicksum(b) + quicksum(n) + quicksum(l) - variance, sense='maximize')
     nonlinear.set_nonlinear_objective(m, 5 * quicksum(r) + quicksum(b) + quicksum(n) + quicksum(l) - variance, sense='maximize')
-
-    # Set maximization objectives
-    # m.setObjectiveN(grsum(r), 0, 0)
-    # m.setObjectiveN(grsum(b), 1, 1)
-    # m.setObjectiveN(grsum(n), 2, 2)
-    # m.setObjectiveN(-variance, 3, 3)
-    # m.setObjectiveN(-grsum(var), 2, 2)
 
     m.setParam("limits/time", 30)
     m.optimize()
-
-    # for v in m.getVars():
-    #     try: 
-    #         print('%s %g' % (v, m.getVal(v)))
-    #     except:
-    #         print('%s' % (v))
 
     bin_prefs = [[0 for _ in range(SHIFTSTOT)] for _ in range(len(PERSONS))]
     for v in m.getVars():
@@ -404,65 +386,6 @@ def print_results(PERSONS, DATES, SHIFTS, BIN_WEIGHTS, NO_ONE):
     zip_buffer.seek(0)
     return zip_buffer.getvalue()
 
-# def print_results(PERSONS, DATES, SHIFTS, NO_ONE):
-#     # Write resulting shifts to file with UTF-8 encoding
-#     with open('OpenhoudenResults.csv', 'w', encoding='utf-8-sig') as file:
-#         file.write(f'Subject, Start Date, Start Time, End Date, End Time \n')
-#         for date in DATES:
-#             for shift in date.get_shifts():
-#                 room_responsible_shift = ""
-#                 while len(shift.get_assigned_persons()) < 2:
-#                     shift.assign_person(copy.deepcopy(NO_ONE))
-#                 room_responsible_shift += f'{shift.get_assigned_persons()[0].get_name()} & {shift.get_assigned_persons()[1].get_name()},'
-#                 room_responsible_shift += f'{datetime.strftime(date.get_date(), "%d/%m/%Y")}, {datetime.strftime(shift.get_start_time(), "%H:%M:%S")}, {datetime.strftime(date.get_date(), "%d/%m/%Y")}, {datetime.strftime(shift.get_end_time(), "%H:%M:%S")} \n'
-#                 file.write(room_responsible_shift)
-#
-#     with open("OpenhouderStats.csv", "w", encoding='utf-8-sig') as file:  # Use UTF-8 encoding
-#         file.write("STATS\n")
-#
-#         # Create headers for each person
-#         headers = f'Shift\\Person,' + ','.join([person.get_name() for person in PERSONS]) + '\n'
-#         file.write(headers)
-#
-#         # Write availability and total assignments
-#         file.write('Available,' + ','.join(str(person.get_available()) for person in PERSONS) + '\n')
-#         file.write('Total,' + ','.join(str(person.get_total()) for person in PERSONS) + '\n')
-#
-#         # Write shift assignment information
-#         for shift in SHIFTS:
-#             shift_row = [shift.get_indicator()]
-#             for person in PERSONS:
-#                 shift_row.append(str(person.get_indicated_shift(shift.get_indicator())))
-#             file.write(','.join(shift_row) + '\n')
-#
-#     cal = Calendar()
-#
-#     for date in DATES:
-#         for shift in date.get_shifts():
-#             assigned_persons = shift.get_assigned_persons()
-#             event = Event()
-#             event.add('summary', ' & '.join([person.get_name() for person in assigned_persons]))
-#             event.add('dtstart', datetime.combine(date.get_date(), shift.get_start_time().time()))
-#             event.add('dtend', datetime.combine(date.get_date(), shift.get_end_time().time()))
-#             event.add('dtstamp', datetime.now())
-#             event.add('location', 'MF 3.155')
-#             event.add('description', 'Room Responsible Shift')
-#
-#             cal.add_component(event)
-#             for person in assigned_persons:
-#                 person.get_calendar().add_component(event)
-#
-#
-#     with open('OpenhoudenSchedule.ics', 'wb') as file:
-#         file.write(cal.to_ical())
-#     if not os.path.exists('schedules'):
-#         os.makedirs('schedules')
-#     for person in PERSONS:
-#         with open(f'schedules/Openhouden{person.get_name()}.ics', 'wb') as file:
-#             file.write(person.get_calendar().to_ical())
-#
-#     print("iCalendar files created succesfully")
-
 def line_to_list(line: str): 
     return list(filter(None, line.rstrip().split(",")))
 
@@ -519,14 +442,3 @@ def read_availabilities(csv):
                     else:
                         PERSONS[i].bin_preference.append(0)
     return PERSONS, DATES, SHIFTS, BIN_WEIGHTS
-
-# if __name__ == "__main__":
-#     if os.path.isfile(file_name):
-#         read_availabilities(file_name)
-#
-#         solvescip()
-#
-#         for i in PERSONS:
-#             i.assign_from_bin()
-#
-#         print_results()
