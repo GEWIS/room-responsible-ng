@@ -397,6 +397,8 @@ def read_availabilities(csv):
 
     # The amount of cells one Shift takes in the csv file
     SHIFTCSV = 4
+    # The amount of shifts in a day
+    SHIFTSPERDAY = 3
     # How many datacolumns each date has (date + is_exam currently) 
     DATEDATA = 2
     # How man rows of information before the dates start 
@@ -409,7 +411,7 @@ def read_availabilities(csv):
         # Read first line, which are the shifts
         if index == 0:
             shifts = line
-            for i in range(int(len(shifts) / SHIFTCSV)):
+            for i in range(SHIFTSPERDAY):
                 SHIFTS.append(Shift(*[shifts[i * SHIFTCSV + j] for j in range(SHIFTCSV)]))
         elif index == 1:
             persons = line[2:]
