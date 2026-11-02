@@ -282,7 +282,7 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
         index = re.split(r'_', str(v))
         if (index[0] == "x"):
             shift, person = int(index[1]), int(index[2])
-            bin_prefs[person][shift] = int(m.getVal(v))
+            bin_prefs[person][shift] = round(m.getVal(v))
 
     for i in range(len(PERSONS)):
         PERSONS[i].set_bin_assignment(bin_prefs[i])
