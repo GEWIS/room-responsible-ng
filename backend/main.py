@@ -194,7 +194,6 @@ class Shift:
         return (self.end - self.start).total_seconds() / 3600
 
 from pyscipopt import Model, quicksum 
-from pyscipopt.recipes import nonlinear
 def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
     SHIFTSTOT = len(SHIFTS) * len(DATES)
 
@@ -218,10 +217,8 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
     b = [m.addVar(vtype="I", name=f"b_{i}") for i in range(SHIFTSTOT)]
     x = [[m.addVar(vtype="B", name=f"x_{i}_{j}") for j in range(len(PERSONS))] for i in range(SHIFTSTOT)]
     # x = m.addMVar(shape=(SHIFTSTOT, len(PERSONS)), vtype="B", name="x")
-    l = [m.addVar(vtype="I", name=f"l_{i}") for i in range(SHIFTSTOT//3)]
     n = [m.addVar(vtype="C", name=f"n_{i}") for i in range(len(N))]
     bv = [m.addVar(vtype="C", name=f"bv_{i}") for i in range(len(B))]
-    mean = m.addVar(lb=None, name="mean")
 
     # Availability constraint
     for i in range(SHIFTSTOT):
@@ -238,14 +235,15 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
         sum = quicksum([x[i][j] for j in B])
         m.addCons(sum >= b[i], f"boardav_{i}")
 
-    for i in range(0, SHIFTSTOT, 3):
-        l1 = rowmult(x[i], x[i+1])
-        l2 = rowmult(x[i+2], x[i+1])
-        l3 = rowmult(l1, l2)
-        l4 = quicksum(l1) + quicksum(l2) - quicksum(l3)
-        m.addCons(l[i // 3] == l4, f"l_{i//3}")
-        # m.addConstr(l[i // 3] <= 1, f"ltop_{i//3}")
-         
+    # Reward a person doing lunch (L) on a day they also do the morning (M) or
+    # afternoon (A); lunch[d][j] can only be 1 if both hold.
+    lunch = [[m.addVar(vtype="B", name=f"lunch_{d}_{j}") for j in range(len(PERSONS))] for d in range(len(DATES))]
+    for d in range(len(DATES)):
+        morning, midday, afternoon = x[3 * d], x[3 * d + 1], x[3 * d + 2]
+        for j in range(len(PERSONS)):
+            m.addCons(lunch[d][j] <= midday[j], f"lunch_l_{d}_{j}")
+            m.addCons(lunch[d][j] <= morning[j] + afternoon[j], f"lunch_ma_{d}_{j}")
+
     # People with a max shifts get maximum their max shifts. 
     for i, j in enumerate(N):
         person = PERSONS[j]
@@ -255,9 +253,17 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
     for i, j in enumerate(B):
         m.addCons(wegrsum(get_column(x, j), BIN_WEIGHTS) == bv[i], f"bv_{j}")
 
-    m.addCons(mean == (1/len(B)) * quicksum(bv[i] for i in B))
-
-    variance = (1/len(B)) * quicksum((bv[i] - mean)*(bv[i] - mean) for i in B)
+    # Board members' hours should be balanced: penalize the gap between the
+    # busiest and the least busy board member.
+    board_max = m.addVar(vtype="C", name="board_max")
+    board_min = m.addVar(vtype="C", name="board_min")
+    for k in range(len(B)):
+        m.addCons(bv[k] <= board_max, f"board_max_{k}")
+        m.addCons(bv[k] >= board_min, f"board_min_{k}")
+    # One extra shift widens the gap by at most 4 here plus 1 from
+    # spread_penalty, still below the 6 a board member earns for filling a
+    # slot (5 + 1), so balancing never leaves slots empty.
+    board_penalty = 4 * (board_max - board_min) / max(BIN_WEIGHTS)
 
     # Each person's busiest week, in hours. Penalizing it makes the solver
     # prefer spreading someone's shifts over the weeks instead of stacking them.
@@ -272,7 +278,7 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
     # Scaled so one extra shift costs at most 1, less than the 5 for filling it
     spread_penalty = quicksum(peak) / max(BIN_WEIGHTS)
 
-    nonlinear.set_nonlinear_objective(m, 5 * quicksum(r) + quicksum(b) + quicksum(n) + quicksum(l) - variance - spread_penalty, sense='maximize')
+    m.setObjective(5 * quicksum(r) + quicksum(b) + quicksum(n) + quicksum(lunch[d][j] for d in range(len(DATES)) for j in range(len(PERSONS))) - board_penalty - spread_penalty, sense="maximize")
 
     m.setParam("limits/time", 30)
     m.optimize()
@@ -288,13 +294,6 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
         PERSONS[i].set_bin_assignment(bin_prefs[i])
         print(PERSONS[i].get_bin_assignment())
         print(len([x for i, x in enumerate(PERSONS[i].get_bin_assignment()) if i % 3 == 1]))
-
-def rowmult(x1, x2):
-    # obj = gp.LinExpr()
-    obj = []
-    for i, j in zip(x1, x2):
-        obj.append(i * j)
-    return obj
 
 def wegrsum(x, weights):
     obj = 0
