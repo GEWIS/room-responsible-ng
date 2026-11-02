@@ -259,7 +259,20 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
 
     variance = (1/len(B)) * quicksum((bv[i] - mean)*(bv[i] - mean) for i in B)
 
-    nonlinear.set_nonlinear_objective(m, 5 * quicksum(r) + quicksum(b) + quicksum(n) + quicksum(l) - variance, sense='maximize')
+    # Each person's busiest week, in hours. Penalizing it makes the solver
+    # prefer spreading someone's shifts over the weeks instead of stacking them.
+    weeks = {}
+    for d, date in enumerate(DATES):
+        weeks.setdefault(date.get_date().isocalendar()[:2], []).append(d)
+    peak = [m.addVar(vtype="C", name=f"peak_{j}") for j in range(len(PERSONS))]
+    for j in range(len(PERSONS)):
+        for w, days in enumerate(weeks.values()):
+            week_hours = quicksum(BIN_WEIGHTS[i] * x[i][j] for d in days for i in range(d * len(SHIFTS), (d + 1) * len(SHIFTS)))
+            m.addCons(week_hours <= peak[j], f"peak_{j}_{w}")
+    # Scaled so one extra shift costs at most 1, less than the 5 for filling it
+    spread_penalty = quicksum(peak) / max(BIN_WEIGHTS)
+
+    nonlinear.set_nonlinear_objective(m, 5 * quicksum(r) + quicksum(b) + quicksum(n) + quicksum(l) - variance - spread_penalty, sense='maximize')
 
     m.setParam("limits/time", 30)
     m.optimize()
