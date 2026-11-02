@@ -1,7 +1,8 @@
 import re
 
 import copy
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from icalendar import Calendar, Event
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import StreamingResponse
@@ -9,6 +10,14 @@ import io
 import csv
 import zipfile
 app = FastAPI()
+
+TIMEZONE = ZoneInfo("Europe/Amsterdam")
+
+def new_calendar():
+    calendar = Calendar()
+    calendar.add('prodid', '-//Room Responsible//room-responsible-ng//EN')
+    calendar.add('version', '2.0')
+    return calendar
 
 @app.get("/")
 async def root():
@@ -54,7 +63,7 @@ class Person:
             self.shift_assigned[i.get_indicator()] = 0
         self.assigned = 0
         self.available = 0
-        self.calendar = Calendar()
+        self.calendar = new_calendar()
 
     def set_board(self, val):
         self.is_board = val
@@ -368,17 +377,20 @@ def print_results(PERSONS, DATES, SHIFTS, BIN_WEIGHTS, NO_ONE):
         # -----------------------------
         # Calendar files
         # -----------------------------
-        cal = Calendar()
+        cal = new_calendar()
 
         for date in DATES:
             for shift in date.get_shifts():
                 assigned_persons = shift.get_assigned_persons()
 
                 event = Event()
+                # Stable per date and shift, so re-importing a new schedule
+                # updates events instead of duplicating them
+                event.add('uid', f'{date.get_date():%Y%m%d}-{shift.get_indicator()}@room-responsible')
                 event.add('summary', ' & '.join(p.get_name() for p in assigned_persons))
-                event.add('dtstart', datetime.combine(date.get_date(), shift.get_start_time().time()))
-                event.add('dtend', datetime.combine(date.get_date(), shift.get_end_time().time()))
-                event.add('dtstamp', datetime.now())
+                event.add('dtstart', datetime.combine(date.get_date(), shift.get_start_time().time(), TIMEZONE))
+                event.add('dtend', datetime.combine(date.get_date(), shift.get_end_time().time(), TIMEZONE))
+                event.add('dtstamp', datetime.now(timezone.utc))
                 event.add('location', 'MF 3.155')
                 event.add('description', 'Room Responsible Shift')
 
@@ -386,9 +398,14 @@ def print_results(PERSONS, DATES, SHIFTS, BIN_WEIGHTS, NO_ONE):
                 for person in assigned_persons:
                     person.get_calendar().add_component(event)
 
+        # VTIMEZONE definitions only need to cover the scheduled dates
+        first_date = min(d.get_date() for d in DATES).date()
+        last_date = max(d.get_date() for d in DATES).date() + timedelta(days=1)
+        cal.add_missing_timezones(first_date, last_date)
         zipf.writestr("OpenhoudenSchedule.ics", cal.to_ical())
 
         for person in PERSONS:
+            person.get_calendar().add_missing_timezones(first_date, last_date)
             zipf.writestr(
                 f"schedules/Openhouden{person.get_name()}.ics",
                 person.get_calendar().to_ical()
