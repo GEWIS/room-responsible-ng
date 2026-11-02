@@ -217,7 +217,7 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
     b = [m.addVar(vtype="I", name=f"b_{i}") for i in range(SHIFTSTOT)]
     x = [[m.addVar(vtype="B", name=f"x_{i}_{j}") for j in range(len(PERSONS))] for i in range(SHIFTSTOT)]
     # x = m.addMVar(shape=(SHIFTSTOT, len(PERSONS)), vtype="B", name="x")
-    n = [m.addVar(vtype="C", name=f"n_{i}") for i in range(len(N))]
+    n = [m.addVar(vtype="I", name=f"n_{i}") for i in range(len(N))]
     bv = [m.addVar(vtype="C", name=f"bv_{i}") for i in range(len(B))]
 
     # Availability constraint
@@ -244,10 +244,10 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
             m.addCons(lunch[d][j] <= midday[j], f"lunch_l_{d}_{j}")
             m.addCons(lunch[d][j] <= morning[j] + afternoon[j], f"lunch_ma_{d}_{j}")
 
-    # People with a max shifts get maximum their max shifts. 
+    # People with a max shifts get at most that many shifts, of any type.
     for i, j in enumerate(N):
         person = PERSONS[j]
-        m.addCons(wegrsum(get_column(x, j), BIN_WEIGHTS) == n[i], f"n_{j}")
+        m.addCons(quicksum(get_column(x, j)) == n[i], f"n_{j}")
         m.addCons(n[i] <= person.get_max_shifts(), f"maxshift_{j}")
 
     for i, j in enumerate(B):
@@ -437,7 +437,7 @@ def read_availabilities(csv):
         elif index == 2:
             max_shifts = line[DATEDATA:DATEDATA + len(PERSONS)]
             for i in range(len(max_shifts)):
-                PERSONS[i].set_max_shifts(int(max_shifts[i]) if int(max_shifts[i]) == -1 else int(max_shifts[i]) * 4)
+                PERSONS[i].set_max_shifts(int(max_shifts[i]))
         elif index == 3:
             board = line[DATEDATA:DATEDATA + len(PERSONS)]
             for i in range(len(board)):
