@@ -51,9 +51,6 @@ async def process_csv(file: UploadFile = File(...)):
 class Person:
     def __init__(self, name, SHIFTS):
         self.name = name
-        self.calendar = []
-        self.non_busy = 0
-        self.busy = 0
         self.is_board = False
         self.max_shifts = -1
         self.bin_preference = []
@@ -89,10 +86,6 @@ class Person:
     def get_total_hours(self, BIN_WEIGHTS):
         return sum([self.bin_assign[i] * BIN_WEIGHTS[i] for i in range(len(self.bin_assign))])
 
-    def set_bin_preference(self, preferred_list):
-        self.bin_preference = preferred_list
-        self.available = sum(preferred_list)
-
     def set_bin_assignment(self, assignment_list):
         self.bin_assign = assignment_list
 
@@ -111,9 +104,6 @@ class Person:
     def get_indicated_shift(self, indicator):
         return self.shift_assigned[indicator]
 
-    def increment_assigned(self):
-        self.assigned += 1
-
     def assign_from_bin(self, DATES, SHIFTS):
         for i in range(len(DATES)):
             for j in range(len(SHIFTS)):
@@ -128,23 +118,10 @@ class Person:
         return self.calendar
 
 class Date:
-    def __init__(self, exams, is_monday, date, DATES):
+    def __init__(self, exams, date):
         self.exams = exams
-        self.is_monday = is_monday
         self.shifts = []
         self.date = date
-        if len(DATES) > 0:
-            self._last_date = DATES[-1]
-        else:
-            self._last_date = None
-        if len(DATES) > 1:
-            self._second_last_date = DATES[-2]
-        else:
-            self._second_last_date = None
-        if len(DATES) > 2:
-            self._third_last_date = DATES[-3]
-        else:
-            self._third_last_date = None
 
     def add_shift(self, shift):
         self.shifts.append(shift)
@@ -169,7 +146,6 @@ class Shift:
         self.start = datetime.strptime(start, "%H:%M:%S")
         self.end = datetime.strptime(end, "%H:%M:%S")
         self.indicator = indicator
-        self.available_people = []
         self.assigned_people = []
 
     def __str__(self):
@@ -180,9 +156,6 @@ class Shift:
 
     def set_end_time(self, end):
         self.end = datetime.strptime(end, "%H:%M:%S")
-
-    def add_available_person(self, person):
-        self.available_people.append(person)
 
     def assign_person(self, person):
         self.assigned_people.append(person)
@@ -208,15 +181,12 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
 
     N = [] # People with max shifts assigned
     B = [] # Board members
-    BI = [] # Board members with infinite shifts
 
     m = Model()
 
     for j, person in enumerate(PERSONS):
         if person.get_is_board():
             B.append(j)
-            if person.get_max_shifts() == -1:
-                BI.append(j)
         if person.get_max_shifts() != -1:
             N.append(j)
 
@@ -225,7 +195,6 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
     r = [m.addVar(vtype="I", name=f"r_{i}") for i in range(SHIFTSTOT)]
     b = [m.addVar(vtype="I", name=f"b_{i}") for i in range(SHIFTSTOT)]
     x = [[m.addVar(vtype="B", name=f"x_{i}_{j}") for j in range(len(PERSONS))] for i in range(SHIFTSTOT)]
-    # x = m.addMVar(shape=(SHIFTSTOT, len(PERSONS)), vtype="B", name="x")
     n = [m.addVar(vtype="I", name=f"n_{i}") for i in range(len(N))]
     bv = [m.addVar(vtype="C", name=f"bv_{i}") for i in range(len(B))]
 
@@ -241,8 +210,7 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
         m.addCons(r[i] <= 2, f"ass_1_{i}")
 
         # All shifts have at least one board member
-        sum = quicksum([x[i][j] for j in B])
-        m.addCons(sum >= b[i], f"boardav_{i}")
+        m.addCons(quicksum(x[i][j] for j in B) >= b[i], f"boardav_{i}")
 
     # Reward a person doing lunch (L) on a day they also do the morning (M) or
     # afternoon (A); lunch[d][j] can only be 1 if both hold.
@@ -301,8 +269,6 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
 
     for i in range(len(PERSONS)):
         PERSONS[i].set_bin_assignment(bin_prefs[i])
-        print(PERSONS[i].get_bin_assignment())
-        print(len([x for i, x in enumerate(PERSONS[i].get_bin_assignment()) if i % 3 == 1]))
 
 def wegrsum(x, weights):
     obj = 0
@@ -312,12 +278,6 @@ def wegrsum(x, weights):
 
 def get_column(x, i) -> list:
     return [row[i] for row in x]
-
-
-def get_person_by_name(name, PERSONS):
-    for i in PERSONS:
-        if i.get_name() == name:
-            return i
 
 def print_results(PERSONS, DATES, SHIFTS, BIN_WEIGHTS, NO_ONE):
     zip_buffer = io.BytesIO()
@@ -414,10 +374,7 @@ def print_results(PERSONS, DATES, SHIFTS, BIN_WEIGHTS, NO_ONE):
     zip_buffer.seek(0)
     return zip_buffer.getvalue()
 
-def line_to_list(line: str): 
-    return list(filter(None, line.rstrip().split(",")))
-
-def read_availabilities(csv):
+def read_availabilities(reader):
     PERSONS = []
     DATES = []
     SHIFTS = []
@@ -434,10 +391,8 @@ def read_availabilities(csv):
     # The time the A shifts ends on exam days
     EXAMENDTIME = "18:00:00"
 
-    file = csv
-
     # Read all lines
-    for index, line in enumerate(file):
+    for index, line in enumerate(reader):
         # Read first line, which are the shifts
         if index == 0:
             shifts = line
@@ -459,14 +414,12 @@ def read_availabilities(csv):
             board = line[DATEDATA:DATEDATA + len(PERSONS)]
             for i in range(len(board)):
                 PERSONS[i].set_board(int(board[i]))
-                print(PERSONS[i])
         else:
             data = line
             dt = datetime.strptime(data[0], "%d/%m/%Y")
-            DATES.append(Date(exams = int(data[1]), is_monday = dt.weekday() == 0, date = dt, DATES=DATES))
+            DATES.append(Date(exams = int(data[1]), date = dt))
 
             availabilities = line[DATEDATA:DATEDATA + len(PERSONS)]
-            print(availabilities)
             for i in SHIFTS:
                 shift = copy.deepcopy(i)
                 if DATES[index - DATEDATASTART].is_exams() and shift.get_indicator() == "A":
@@ -476,7 +429,6 @@ def read_availabilities(csv):
             for i, v in enumerate(availabilities):
                 for j in DATES[index - DATEDATASTART].get_shifts():
                     if j.get_indicator() in v:
-                        j.add_available_person(PERSONS[i])
                         PERSONS[i].bin_preference.append(1)
                     else:
                         PERSONS[i].bin_preference.append(0)
