@@ -156,13 +156,12 @@ class Date:
         return string
 
 class Shift:
-    def __init__(self, start, end, indicator, weight):
+    def __init__(self, start, end, indicator):
         self.start = datetime.strptime(start, "%H:%M:%S")
         self.end = datetime.strptime(end, "%H:%M:%S")
         self.indicator = indicator
         self.available_people = []
         self.assigned_people = []
-        self.weight = int(weight)
 
     def __str__(self):
         string = f'Shift ({self.indicator}, {datetime.strftime(self.start, "%H:%M:%S")} - {datetime.strftime(self.end, "%H:%M:%S")}), filled by: '
@@ -170,8 +169,8 @@ class Shift:
             string += f'{i.get_name()}, '
         return string
 
-    def set_weight(self, val):
-        self.weight = val
+    def set_end_time(self, end):
+        self.end = datetime.strptime(end, "%H:%M:%S")
 
     def add_available_person(self, person):
         self.available_people.append(person)
@@ -191,8 +190,8 @@ class Shift:
     def get_end_time(self):
         return self.end
 
-    def get_weight(self):
-        return self.weight
+    def get_hours(self):
+        return (self.end - self.start).total_seconds() / 3600
 
 from pyscipopt import Model, quicksum 
 from pyscipopt.recipes import nonlinear
@@ -220,8 +219,8 @@ def solvescip(PERSONS, DATES, SHIFTS, BIN_WEIGHTS):
     x = [[m.addVar(vtype="B", name=f"x_{i}_{j}") for j in range(len(PERSONS))] for i in range(SHIFTSTOT)]
     # x = m.addMVar(shape=(SHIFTSTOT, len(PERSONS)), vtype="B", name="x")
     l = [m.addVar(vtype="I", name=f"l_{i}") for i in range(SHIFTSTOT//3)]
-    n = [m.addVar(vtype="I", name=f"n_{i}") for i in range(len(N))]
-    bv = [m.addVar(vtype="I", name=f"bv_{i}") for i in range(len(B))]
+    n = [m.addVar(vtype="C", name=f"n_{i}") for i in range(len(N))]
+    bv = [m.addVar(vtype="C", name=f"bv_{i}") for i in range(len(B))]
     mean = m.addVar(lb=None, name="mean")
 
     # Availability constraint
@@ -341,7 +340,7 @@ def print_results(PERSONS, DATES, SHIFTS, BIN_WEIGHTS, NO_ONE):
 
         stats_csv.write('Available,' + ','.join(str(p.get_available()) for p in PERSONS) + '\n')
         stats_csv.write('Total,' + ','.join(str(p.get_total()) for p in PERSONS) + '\n')
-        stats_csv.write('Totalhours,' + ','.join(str(p.get_total_hours(BIN_WEIGHTS)) for p in PERSONS) + '\n')
+        stats_csv.write('Totalhours,' + ','.join(f'{p.get_total_hours(BIN_WEIGHTS):g}' for p in PERSONS) + '\n')
 
         for shift in SHIFTS:
             row = [shift.get_indicator()]
@@ -395,14 +394,16 @@ def read_availabilities(csv):
     SHIFTS = []
     BIN_WEIGHTS = []
 
-    # The amount of cells one Shift takes in the csv file
-    SHIFTCSV = 4
+    # The amount of cells one Shift takes in the csv file (start, end, indicator)
+    SHIFTCSV = 3
     # The amount of shifts in a day
     SHIFTSPERDAY = 3
     # How many datacolumns each date has (date + is_exam currently) 
     DATEDATA = 2
     # How man rows of information before the dates start 
     DATEDATASTART = 4
+    # The time the A shifts ends on exam days
+    EXAMENDTIME = "18:00:00"
 
     file = csv
 
@@ -414,15 +415,19 @@ def read_availabilities(csv):
             for i in range(SHIFTSPERDAY):
                 SHIFTS.append(Shift(*[shifts[i * SHIFTCSV + j] for j in range(SHIFTCSV)]))
         elif index == 1:
-            persons = line[2:]
+            # Spreadsheet exports pad every row to the widest row (the shift
+            # header), so trailing empty columns are not people.
+            persons = line[DATEDATA:]
+            while persons and not persons[-1].strip():
+                persons.pop()
             for i in range(len(persons)):
                 PERSONS.append(Person(persons[i], SHIFTS))
         elif index == 2:
-            max_shifts = line[2:]
+            max_shifts = line[DATEDATA:DATEDATA + len(PERSONS)]
             for i in range(len(max_shifts)):
                 PERSONS[i].set_max_shifts(int(max_shifts[i]) if int(max_shifts[i]) == -1 else int(max_shifts[i]) * 4)
         elif index == 3:
-            board = line[2:]
+            board = line[DATEDATA:DATEDATA + len(PERSONS)]
             for i in range(len(board)):
                 PERSONS[i].set_board(int(board[i]))
                 print(PERSONS[i])
@@ -431,11 +436,14 @@ def read_availabilities(csv):
             dt = datetime.strptime(data[0], "%d/%m/%Y")
             DATES.append(Date(exams = int(data[1]), is_monday = dt.weekday() == 0, date = dt, DATES=DATES))
 
-            availabilities = line[DATEDATA:]
+            availabilities = line[DATEDATA:DATEDATA + len(PERSONS)]
             print(availabilities)
             for i in SHIFTS:
-                DATES[index - DATEDATASTART].add_shift(copy.deepcopy(i))
-                BIN_WEIGHTS.append(i.get_weight())
+                shift = copy.deepcopy(i)
+                if DATES[index - DATEDATASTART].is_exams() and shift.get_indicator() == "A":
+                    shift.set_end_time(EXAMENDTIME)
+                DATES[index - DATEDATASTART].add_shift(shift)
+                BIN_WEIGHTS.append(shift.get_hours())
             for i, v in enumerate(availabilities):
                 for j in DATES[index - DATEDATASTART].get_shifts():
                     if j.get_indicator() in v:
