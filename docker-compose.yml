@@ -2,5 +2,6 @@ services:
   app:
     build: .
     container_name: csv_app
+    restart: unless-stopped
     ports:
       - "8080:80"
